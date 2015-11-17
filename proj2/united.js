@@ -1,4 +1,9 @@
+/**
+ * proj2.js
+ * @author Sam Whitsett
+ */
 
+// move to main, pass by val
 var i = 0.1;
 var x = 0.0;
 var y = 0.0;
@@ -32,7 +37,6 @@ function main() {
       u_Color:0            
    };
 
-   // a triangle object
    var triangle = {
       vertices:   new Float32Array([
          0.0,  0.2,    1, 0, 0,
@@ -72,7 +76,7 @@ function main() {
       buffer: 0
    };
 
-   // a quad object
+
    var quad = {
       vertices:   new Float32Array([
          -0.1,  0.1,
@@ -81,6 +85,42 @@ function main() {
          0.1, -0.1
       ]),
       n: 4,
+      modelMatrix: new Matrix4,
+      buffer: 0
+   };
+
+   var lines = {
+      vertices:   new Float32Array([
+         -0.8,  0.8,
+         -0.8, -0.8,
+         0.8,  0.8,
+         0.8, -0.8
+      ]),
+      n: 2,
+      modelMatrix: new Matrix4,
+      buffer: 0
+   };
+
+   var point = {
+      vertices:   new Float32Array([
+         0.0,  0.5
+      ]),
+      n: 1,
+      PointSize: 30,
+      modelMatrix: new Matrix4,
+      buffer: 0
+   };
+
+   var tristrip = {
+      vertices:   new Float32Array([
+         -0.8,  0.8,    1, 0, 0,
+         -0.7, -0.0,   0, 1, 0,
+         -0.2, -0.2,    0, 0, 1,
+         0.4, -0.4,  1, 0, 0,
+         0.2, -0.2,    0, 1, 0,
+         0.4, -0.4,    0, 0, 1
+      ]),
+      n: 6,
       modelMatrix: new Matrix4,
       buffer: 0
    };
@@ -105,7 +145,7 @@ function main() {
    gl.clearColor(0, 0, 0, 1);
 
 
-   var n = initModels(gl, shaderVars, triangle, quad, fan, strip);
+   var n = initModels(gl, shaderVars, triangle, quad, fan, strip, lines, tristrip, point);
    if (n < 0) {
       console.log('Failed to initialize models');
       return;
@@ -118,12 +158,15 @@ function main() {
 
    var tick = function() {
       animate(triangle, fan, strip, last, angle);
-      render(gl, shaderVars, triangle, quad, fan, strip);
+      render(gl, shaderVars, triangle, quad, fan, strip, lines, tristrip, point);
       requestAnimationFrame(tick, canvas);
    };
    tick();
 }
 
+/**
+ * click - Handles and grabs the location on a mouse down event
+ */
 function click(ev, gl, canvas, quad) {
   x = ev.clientX; 
   y = ev.clientY; 
@@ -140,10 +183,7 @@ function click(ev, gl, canvas, quad) {
 }
 
 /**
- * animate - animates the triangle object
- * @param {Object} triangle - the triangle object to be animated
- * @param {Number} last - the last time this function executed
- * @param {Number} angle - the angle of rotation
+ * animate - animates the desired objects based off the mouse click.
  */
 function animate(triangle, fan, strip, last, angle) {
    var now = Date.now();
@@ -180,12 +220,8 @@ function animate(triangle, fan, strip, last, angle) {
 
 /**
  * render - renders the scene using WebGL
- * @param {Object} gl - the WebGL rendering context
- * @param {Object} shaderVars - the locations of shader variables
- * @param {Object} triangle - the triangle to be rendered
- * @param {Object} quad - the quad to be rendered
  */
-function render(gl, shaderVars, triangle, quad, fan, strip) {
+function render(gl, shaderVars, triangle, quad, fan, strip, lines, tristrip, point) {
 
    // clear the canvas
    gl.clear(gl.COLOR_BUFFER_BIT);
@@ -228,17 +264,42 @@ function render(gl, shaderVars, triangle, quad, fan, strip) {
    gl.vertexAttribPointer(
       shaderVars.a_Position, 2, gl.FLOAT, false, FSIZE*5, 0);
    gl.drawArrays(gl.LINE_STRIP, 0, strip.n);
+
+   // draw lines------------------------------------------------
+   gl.uniform4f(shaderVars.u_Color, .8, 0, 0, 1);
+   gl.uniformMatrix4fv(
+      shaderVars.u_xformMatrix, false, lines.modelMatrix.elements);
+   gl.bindBuffer(gl.ARRAY_BUFFER, lines.buffer);
+   var FSIZE = lines.vertices.BYTES_PER_ELEMENT;
+   gl.vertexAttribPointer(
+      shaderVars.a_Position, 2, gl.FLOAT, false, FSIZE*5, 0);
+   gl.drawArrays(gl.LINES, 0, lines.n);
+
+   // draw point------------------------------------------------
+   gl.uniform4f(shaderVars.u_Color, 1, 1, 1, 1);
+   gl.uniformMatrix4fv(
+      shaderVars.u_xformMatrix, false, point.modelMatrix.elements);
+   gl.bindBuffer(gl.ARRAY_BUFFER, point.buffer);
+   var FSIZE = point.vertices.BYTES_PER_ELEMENT;
+   gl.vertexAttribPointer(
+      shaderVars.a_Position, 2, gl.FLOAT, false, FSIZE*5, 0);
+   gl.drawArrays(gl.POINTS, 0, point.n);
+
+   // draw tristrip------------------------------------------------
+   gl.uniform4f(shaderVars.u_Color, .1, 0, .1, 1);
+   gl.uniformMatrix4fv(
+      shaderVars.u_xformMatrix, false, tristrip.modelMatrix.elements);
+   gl.bindBuffer(gl.ARRAY_BUFFER, tristrip.buffer);
+   var FSIZE = tristrip.vertices.BYTES_PER_ELEMENT;
+   gl.vertexAttribPointer(
+      shaderVars.a_Position, 2, gl.FLOAT, false, FSIZE*5, 0);
+   gl.drawArrays(gl.TRIANGLE_STRIP, 0, tristrip.n);
 }
 
 /**
- * initModels - initializes WebGL buffers for the the triangle & quad
- * @param {Object} gl - the WebGL rendering context
- * @param {Object} shaderVars - the locations of shader variables
- * @param {Object} triangle - the triangle to be rendered
- * @param {Object} quad - the quad to be rendered
- * @returns {Boolean}
+ * initModels - initializes WebGL buffers for the the objects
  */
-function initModels(gl, shaderVars, triangle, quad, fan, strip) {
+function initModels(gl, shaderVars, triangle, quad, fan, strip, lines, tristrip, point) {
 
    // set up the triangle-------------------------------------------
    triangle.buffer = gl.createBuffer();
@@ -277,6 +338,38 @@ function initModels(gl, shaderVars, triangle, quad, fan, strip) {
    gl.bindBuffer(gl.ARRAY_BUFFER, strip.buffer);
    gl.bufferData(gl.ARRAY_BUFFER, strip.vertices, gl.STATIC_DRAW);
    var FSIZE = strip.vertices.BYTES_PER_ELEMENT;
+   gl.vertexAttribPointer(
+      shaderVars.a_Position, 2, gl.FLOAT, false, FSIZE*5, 0);
+   gl.enableVertexAttribArray(shaderVars.a_Position);
+
+   // set up the strip-------------------------------------------
+   lines.buffer = gl.createBuffer();
+
+   gl.bindBuffer(gl.ARRAY_BUFFER, lines.buffer);
+   gl.bufferData(gl.ARRAY_BUFFER, lines.vertices, gl.STATIC_DRAW);
+   var FSIZE = lines.vertices.BYTES_PER_ELEMENT;
+   gl.vertexAttribPointer(
+      shaderVars.a_Position, 2, gl.FLOAT, false, FSIZE*5, 0);
+   gl.enableVertexAttribArray(shaderVars.a_Position);
+
+    // set up the point-------------------------------------------
+   point.buffer = gl.createBuffer();
+
+   gl.bindBuffer(gl.ARRAY_BUFFER, point.buffer);
+   gl.bufferData(gl.ARRAY_BUFFER, point.vertices, gl.STATIC_DRAW);
+   var FSIZE = point.vertices.BYTES_PER_ELEMENT;
+   console.log(FSIZE);
+   gl.vertexAttribPointer(
+      shaderVars.a_Position, 2, gl.FLOAT, false, FSIZE*5, 0);
+   gl.enableVertexAttribArray(shaderVars.a_Position);
+
+   // set up the tristrip-------------------------------------------
+   tristrip.buffer = gl.createBuffer();
+
+   gl.bindBuffer(gl.ARRAY_BUFFER, tristrip.buffer);
+   gl.bufferData(gl.ARRAY_BUFFER, tristrip.vertices, gl.STATIC_DRAW);
+   var FSIZE = tristrip.vertices.BYTES_PER_ELEMENT;
+   console.log(FSIZE);
    gl.vertexAttribPointer(
       shaderVars.a_Position, 2, gl.FLOAT, false, FSIZE*5, 0);
    gl.enableVertexAttribArray(shaderVars.a_Position);
