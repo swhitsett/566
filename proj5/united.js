@@ -19,7 +19,26 @@ var FSHADER_SOURCE =
 '  gl_FragColor = v_Color;\n' +
 '}\n';
 
+var TEXTURE_VSHADER_SOURCE =
+  'attribute vec4 a_Position;\n' +
+  'attribute vec2 a_TexCoord;\n' +
+  'uniform mat4 u_MvpMatrix;\n' +
+  'varying vec2 v_TexCoord;\n' +
+  'void main() {\n' +
+  '  gl_Position = u_MvpMatrix * a_Position;\n' +
+  '  v_TexCoord = a_TexCoord;\n' +
+  '}\n';
 
+// Fragment shader for texture drawing
+var TEXTURE_FSHADER_SOURCE =
+  '#ifdef GL_ES\n' +
+  'precision mediump float;\n' +
+  '#endif\n' +
+  'uniform sampler2D u_Sampler;\n' +
+  'varying vec2 v_TexCoord;\n' +
+  'void main() {\n' +
+  '  gl_FragColor = texture2D(u_Sampler, v_TexCoord);\n' +
+  '}\n';
 /********* Global Variables ****************************/
 var camera = {
    eyeX     : 0.0,
@@ -64,7 +83,14 @@ var Rect = {
         1.0, 1.0, 1.0,  1.0, 1.0, 1.0,  1.0, 1.0, 1.0,  1.0, 1.0, 1.0,  // v7-v4-v3-v2 down
         0.4, 1.0, 1.0,  0.4, 1.0, 1.0,  0.4, 1.0, 1.0,  0.4, 1.0, 1.0   // v4-v7-v6-v5 back
    ]),
-
+   texCoords : new Float32Array([   // Texture coordinates
+     16.0, 16.0,   0.0, 16.0,   0.0, 0.0,   16.0, 0.0,    // v0-v1-v2-v3 front
+     0.0, 16.0,   0.0, 0.0,   16.0, 0.0,   16.0, 16.0,    // v0-v3-v4-v5 right
+     16.0, 0.0,   16.0, 16.0,   0.0, 16.0,   0.0, 0.0,    // v0-v5-v6-v1 up
+     16.0, 16.0,   0.0, 16.0,   0.0, 0.0,   16.0, 0.0,    // v1-v6-v7-v2 left
+     0.0, 0.0,   16.0, 0.0,   16.0, 16.0,   0.0, 16.0,    // v7-v4-v3-v2 down
+     0.0, 0.0,   16.0, 0.0,   16.0, 16.0,   0.0, 16.0     // v4-v7-v6-v5 back
+   ]),
    boxIndices : new Uint8Array([    // boxIndices of the boxVertices
          0, 1, 2,   0, 2, 3,     // front
          4, 5, 6,   4, 6, 7,     // right
@@ -85,6 +111,7 @@ var angle = 0.0;
 var chosenSpeed = 1;
 var buildingsDrawn = false;
 var randInt = 0.0;
+var rotateY = 1.0;
 
 function main() {
    // Retrieve <canvas> element
@@ -98,12 +125,28 @@ function main() {
    }
 
    // Initialize shaders
-   if (!initShaders(gl, VSHADER_SOURCE, FSHADER_SOURCE)) {
+   if (!initShaders(gl, VSHADER_SOURCE, FSHADER_SOURCE, 
+                    TEXTURE_VSHADER_SOURCE, 
+                    TEXTURE_FSHADER_SOURCE)) {
       console.log('Failed to intialize shaders.');
       return;
    }
 
-   Rect.colors.push(Rect.boxColors);
+   // Rect.colors.push(Rect.boxColors);
+   var normalProgram = createProgram(gl, VSHADER_SOURCE, FSHADER_SOURCE);
+  var textureProgram = createProgram(gl, TEXTURE_VSHADER_SOURCE, TEXTURE_FSHADER_SOURCE);
+  gl.useProgram(normalProgram);
+   var texture = initTextures(gl, textureProgram);
+
+     normalProgram.a_Position = gl.getAttribLocation(normalProgram, 'a_Position');
+  normalProgram.a_Color = gl.getAttribLocation(normalProgram, 'a_Color');
+  normalProgram.u_MvpMatrix = gl.getUniformLocation(normalProgram, 'u_MvpMatrix');
+
+  textureProgram.a_Position = gl.getAttribLocation(textureProgram, 'a_Position');
+  textureProgram.a_TexCoord = gl.getAttribLocation(textureProgram, 'a_TexCoord');
+  textureProgram.u_MvpMatrix = gl.getUniformLocation(textureProgram, 'u_MvpMatrix');
+  textureProgram.u_Sampler = gl.getUniformLocation(textureProgram, 'u_Sampler');
+
    // Set the vertex information
    var n = initVertexBuffers(gl, Rect);
    if (n < 0) {
@@ -126,14 +169,14 @@ function main() {
    var tick = function() {
     requestAnimationFrame(tick);
     handleKeys();
-    draw(gl, n, u_MvpMatrix, mvpMatrix, canvas);
+    draw(gl, normalProgram, textureProgram, n, u_MvpMatrix, mvpMatrix, canvas);
     animate();
 
    };
    tick();
 }
 
-function draw(gl, n, u_MvpMatrix, mvpMatrix, canvas) {
+function draw(gl, normalProgram, textureProgram, n, u_MvpMatrix, mvpMatrix, canvas) {
    //draw buildings
    console.log("++++++++++++++++");
    console.log(camera.eyeX);
@@ -147,7 +190,7 @@ function draw(gl, n, u_MvpMatrix, mvpMatrix, canvas) {
    // gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
    mvpMatrix.setPerspective(40, canvas.width/canvas.height, 1, 100);
    mvpMatrix.lookAt(camera.eyeX, 1, camera.eyeZ, camera.lapX, 0, camera.lapZ, 0, 1, 0);
-   draw_windmill(gl, n, u_MvpMatrix, mvpMatrix);
+   draw_windmill(gl, normalProgram, textureProgram, n, u_MvpMatrix, mvpMatrix);
 }
 
 function animate() {
@@ -211,8 +254,12 @@ function handleKeys() {
         chosenSpeed = 0;
     }
 
-    if(currentlyPressedKeys[121]){ // y key
+    if(currentlyPressedKeys[89]){ // y key
+      rotateY = angle;
       console.log("Hello");
+    }
+    else{
+      rotateY = rotateY;
     }
 }
 
@@ -251,56 +298,67 @@ function setBufferData(gl, buffer, data, num, type, attribute) {
    return true;
 }
 
-function draw(gl, n, u_MvpMatrix, mvpMatrix, canvas) {
-   // console.log("++++++++++++++++");
-   // console.log(camera.eyeX);
-   // console.log(camera.eyeY);
-   // console.log(camera.eyeZ);
-   // console.log(camera.lapX);
-   // console.log(camera.lapY   );
-   // console.log(camera.lapZ);
-   // console.log(yaw);
-   // console.log("-----------------");
-   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-   mvpMatrix.setPerspective(30, canvas.width/canvas.height, 1, 100);
-   mvpMatrix.lookAt(camera.eyeX, 0.3, camera.eyeZ, camera.lapX, 0, camera.lapZ, 0, 1, 0);
-   draw_windmill(gl, n, u_MvpMatrix, mvpMatrix);
-}
+// function draw(gl, normalProgram, textureProgram, n, u_MvpMatrix, mvpMatrix, canvas) {
+//    // console.log("++++++++++++++++");
+//    // console.log(camera.eyeX);
+//    // console.log(camera.eyeY);
+//    // console.log(camera.eyeZ);
+//    // console.log(camera.lapX);
+//    // console.log(camera.lapY   );
+//    // console.log(camera.lapZ);
+//    // console.log(yaw);
+//    // console.log("-----------------");
+//    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+//    mvpMatrix.setPerspective(30, canvas.width/canvas.height, 1, 100);
+//    mvpMatrix.lookAt(camera.eyeX, 0.3, camera.eyeZ, camera.lapX, 0, camera.lapZ, 0, 1, 0);
+//    draw_windmill(gl, n, u_MvpMatrix, mvpMatrix);
+// }
 
-function draw_windmill(gl, n, u_MvpMatrix, mvpMatrix) {
+function draw_windmill(gl, normalProgram, textureProgram, n, u_MvpMatrix, mvpMatrix) {
   // gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
   // mrHold2 = u_MvpMatrix;
   // Ground
+  //-----------------------------------------------------
+  gl.useProgram(textureProgram);
+        initAttributeVariable(gl, tProgram.a_Position, o.vertexBuffer, 3, gl.FLOAT);
+        initAttributeVariable(gl, tProgram.a_TexCoord, o.texCoordBuffer, 2, gl.FLOAT);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, o.indexBuffer); // Bind indices
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        console.log("Texture = "+texture);
+        drawObj(gl, n, tProgram, mvpMatrix, objs[i]);
+
   mvpMatrix.translate(0, -1.0, 0).scale(100, 0.01, 100);
   gl.uniformMatrix4fv(u_MvpMatrix, false, mvpMatrix.elements);
   gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_BYTE, 0);
   mvpMatrix.scale(1/100, 1/0.01, 1/100).translate(0, 1.0, 0);
+  //-------------------------------------------------------
   // Fan Tower
-  mvpMatrix.translate(1.5, 0, -2).scale(0.3, 1.5, 0.3);
+  mvpMatrix.translate(1.5, 0, -2).rotate(rotateY,0,1,0).scale(0.3, 1.5, 0.3);
   gl.uniformMatrix4fv(u_MvpMatrix, false, mvpMatrix.elements);
   gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_BYTE, 0);
-  mvpMatrix.scale(1/0.3, 1/1.5, 1/0.3).translate(-1.5, -0, 2);
+  mvpMatrix.scale(1/0.3, 1/1.5, 1/0.3).rotate(-rotateY,0,1,0).translate(-1.5, -0, 2);
   // Fan Blades
-  mvpMatrix.translate(1.5, 0.7, -1.8).rotate(angle,0,0,1).scale(0.1, 1.2, 0.1).translate(0.5,0.5,0);
+  mvpMatrix.translate(1.5, 0.7, -1.8).rotate((rotateY+1)%360,0,1,0).rotate(angle,0,0,1).scale(0.1, 1.2, 0.1).translate(0.5,0.5,0.5);
   gl.uniformMatrix4fv(u_MvpMatrix, false, mvpMatrix.elements);
   gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_BYTE, 0);
-  mvpMatrix.translate(-0.5,-0.5,0).scale(1/0.1, 1/1.2, 1/0.1).rotate(-angle,0,0,1).translate(-1.5, -0.7, 1.8);
+  mvpMatrix.translate(-0.5,-0.5,-0.5).scale(1/0.1, 1/1.2, 1/0.1).rotate(-angle,0,0,1).rotate(-(rotateY+1)%360,0,1,0).translate(-1.5, -0.7, 1.8);
 
-  mvpMatrix.translate(1.5, 0.7, -1.8).rotate(angle+90,0,0,1).scale(0.1, 1.2, 0.1).translate(0.5,0.5,0);
+  mvpMatrix.translate(1.5, 0.7, -1.8).rotate((rotateY+1)%360,0,1,0).rotate(angle+90,0,0,1).scale(0.1, 1.2, 0.1).translate(0.5,0.5,0);
   gl.uniformMatrix4fv(u_MvpMatrix, false, mvpMatrix.elements);
   gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_BYTE, 0);
-  mvpMatrix.translate(-0.5,-0.5,0).scale(1/0.1, 1/1.2, 1/0.1).rotate(-(angle+90),0,0,1).translate(-1.5, -0.7, 1.8);
+  mvpMatrix.translate(-0.5,-0.5,0).scale(1/0.1, 1/1.2, 1/0.1).rotate(-(angle+90),0,0,1).rotate(-(rotateY+1)%360,0,1,0).translate(-1.5, -0.7, 1.8);
 
-  mvpMatrix.translate(1.5, 0.7, -1.8).rotate(angle+180,0,0,1).scale(0.1, 1.2, 0.1).translate(0.5,0.5,0);
+  mvpMatrix.translate(1.5, 0.7, -1.8).rotate((rotateY+1)%360,0,1,0).rotate(angle+180,0,0,1).scale(0.1, 1.2, 0.1).translate(0.5,0.5,0);
   gl.uniformMatrix4fv(u_MvpMatrix, false, mvpMatrix.elements);
   gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_BYTE, 0);
-  mvpMatrix.translate(-0.5,-0.5,0).scale(1/0.1, 1/1.2, 1/0.1).rotate(-(angle+180),0,0,1).translate(-1.5, -0.7, 1.8);
+  mvpMatrix.translate(-0.5,-0.5,0).scale(1/0.1, 1/1.2, 1/0.1).rotate(-(angle+180),0,0,1).rotate(-(rotateY+1)%360,0,1,0).translate(-1.5, -0.7, 1.8);
 
-  mvpMatrix.translate(1.5, 0.7, -1.8).rotate(angle+270,0,0,1).scale(0.1, 1.2, 0.1).translate(0.5,0.5,0);
+  mvpMatrix.translate(1.5, 0.7, -1.8).rotate((rotateY+1)%360,0,1,0).rotate(angle+270,0,0,1).scale(0.1, 1.2, 0.1).translate(0.5,0.5,0);
   gl.uniformMatrix4fv(u_MvpMatrix, false, mvpMatrix.elements);
   gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_BYTE, 0);
-  mvpMatrix.translate(-0.5,-0.5,0).scale(1/0.1, 1/1.2, 1/0.1).rotate(-(angle+270),0,0,1).translate(-1.5, -0.7, 1.8);
+  mvpMatrix.translate(-0.5,-0.5,0).scale(1/0.1, 1/1.2, 1/0.1).rotate(-(angle+270),0,0,1).rotate(-(rotateY+1)%360,0,1,0).translate(-1.5, -0.7, 1.8);
 
   // Draw Buildings
    for(var i = 0; i < 5; i++) {
@@ -348,4 +406,40 @@ function draw_windmill(gl, n, u_MvpMatrix, mvpMatrix) {
   // gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_BYTE, 0);
   // // mvpMatrix.translate(-1.5, -0.7, 1.8);
   // console.log(mvpMatrix);
+}
+
+//=-------------for image ------------------------------
+function initTextures(gl, program) {
+  var texture = gl.createTexture();   // Create a texture object
+  if (!texture) {
+    console.log('Failed to create the texture object');
+    return null;
+  }
+
+  var image = new Image();  // Create a image object
+  if (!image) {
+    console.log('Failed to create the image object');
+    return null;
+  }
+  // Register the event handler to be called when image loading is completed
+  image.onload = function() {
+    // Write the image data to texture object
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);  // Flip the image Y coordinate
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+
+    // Pass the texure unit 0 to u_Sampler
+    gl.useProgram(program);
+    gl.uniform1i(program.u_Sampler, 0);
+
+    gl.bindTexture(gl.TEXTURE_2D, null); // Unbind texture
+    //try drawing???
+    //gl.drawElements(gl.TRIANGLES, 36, gl.UNSIGNED_BYTE, 0);
+  };
+  // Tell the browser to load an Image
+  image.src = 'tilet2.jpg';
+
+  return texture;
 }
